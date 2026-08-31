@@ -1,4 +1,5 @@
 const supabase = require("../config/postgres");
+const { generateEmbedding } = require("../services/embeddingService");
 
 const getAllPapers = async (req, res) => {
 
@@ -140,27 +141,27 @@ function convertAbstract(invertedIndex) {
 
 const searchPapers = async (req, res) => {
     try {
-        const { q, year , minCitations } = req.query;
+        const { q, year, minCitations } = req.query;
 
         if (!q) {
             return res.status(400).json({ message: "search query is required" });
         }
-        let query =  supabase.from("papers")
+        let query = supabase.from("papers")
             .select("*");
 
         query = query.or(`title.ilike.%${q}%,abstract.ilike.%${q}%`);
 
-        if(year){
+        if (year) {
             query = query.eq('publication_year', Number(year));
         }
-        if(minCitations){
+        if (minCitations) {
             query = query.gte(
                 'citation_count',
                 Number(minCitations)
             )
         }
 
-        const {data, error} = await query;
+        const { data, error } = await query;
 
         if (error) {
             console.error("Error occurred:", error);
@@ -179,10 +180,45 @@ const searchPapers = async (req, res) => {
     }
 }
 
+const savePaperEmbedding = async (req, res) => {
+    const { data: papers, error } = await supabase
+        .from("papers")
+        .select("id, title, abstract")
+        .is("embedding", null)
+        .limit(200)
 
+    if (error) {
+        return res.status(500).json({ message: error.message });
+    }
+
+    for (const paper of papers) {
+        const text = `
+            Title: ${paper.title}
+
+            Abstract: ${paper.abstract || ""}
+        `
+        console.log(
+            `Generating embedding for: ${paper.title}`
+        );
+        const embedding = await generateEmbedding(text);
+
+        const { error: updateError } = await supabase.from("papers")
+            .update({ embedding: embedding })
+            .eq("id", paper.id);
+
+        if (updateError) {
+            console.error("Failed to save embedding:", updateError);
+        }
+    }
+    return res.status(200).json({
+            message: "Embeddings generated",
+            count: papers.length
+        });
+}
 
 
 module.exports = {
     getAllPapers,
-    searchPapers
+    searchPapers,
+    savePaperEmbedding
 };
