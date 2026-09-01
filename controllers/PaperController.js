@@ -72,10 +72,42 @@ const getAllPapers = async (req, res) => {
             );
         }
 
-        return res.status(201).json({
+        res.status(201).json({
             response: "Papers collected successfully",
             totalPapers: totalPapers
         });
+
+        setImmediate(async () => {
+            const { data: papers, error } = await supabase
+            .from("papers")
+            .select("id, title, abstract")
+            .is("embedding", null)
+            .limit(200)
+
+        if (error) {
+            return res.status(500).json({ message: error.message });
+        }
+
+        for (const paper of papers) {
+            const text = `
+            Title: ${paper.title}
+
+            Abstract: ${paper.abstract || ""}
+        `
+            console.log(
+                `Generating embedding for: ${paper.title}`
+            );
+            const embedding = await generateEmbedding(text);
+
+            const { error: updateError } = await supabase.from("papers")
+                .update({ embedding: embedding })
+                .eq("id", paper.id);
+
+            if (updateError) {
+                console.error("Failed to save embedding:", updateError);
+            }
+        }
+        })
 
     } catch (error) {
 
@@ -181,39 +213,46 @@ const searchPapers = async (req, res) => {
 }
 
 const savePaperEmbedding = async (req, res) => {
-    const { data: papers, error } = await supabase
-        .from("papers")
-        .select("id, title, abstract")
-        .is("embedding", null)
-        .limit(200)
 
-    if (error) {
-        return res.status(500).json({ message: error.message });
-    }
+    try {
+        const { data: papers, error } = await supabase
+            .from("papers")
+            .select("id, title, abstract")
+            .is("embedding", null)
+            .limit(500)
 
-    for (const paper of papers) {
-        const text = `
+        if (error) {
+            return res.status(500).json({ message: error.message });
+        }
+
+        for (const paper of papers) {
+            const text = `
             Title: ${paper.title}
 
             Abstract: ${paper.abstract || ""}
         `
-        console.log(
-            `Generating embedding for: ${paper.title}`
-        );
-        const embedding = await generateEmbedding(text);
+            console.log(
+                `Generating embedding for: ${paper.title}`
+            );
+            const embedding = await generateEmbedding(text);
 
-        const { error: updateError } = await supabase.from("papers")
-            .update({ embedding: embedding })
-            .eq("id", paper.id);
+            const { error: updateError } = await supabase.from("papers")
+                .update({ embedding: embedding })
+                .eq("id", paper.id);
 
-        if (updateError) {
-            console.error("Failed to save embedding:", updateError);
+            if (updateError) {
+                console.error("Failed to save embedding:", updateError);
+            }
         }
-    }
-    return res.status(200).json({
+        return res.status(200).json({
             message: "Embeddings generated",
             count: papers.length
         });
+    } catch (error) {
+        return res.status(500).json({
+            message: "Embeddings generation error"
+        });
+    }
 }
 
 
