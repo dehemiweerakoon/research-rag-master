@@ -79,34 +79,34 @@ const getAllPapers = async (req, res) => {
 
         setImmediate(async () => {
             const { data: papers, error } = await supabase
-            .from("papers")
-            .select("id, title, abstract")
-            .is("embedding", null)
-            .limit(200)
+                .from("papers")
+                .select("id, title, abstract")
+                .is("embedding", null)
+                .limit(200)
 
-        if (error) {
-            return res.status(500).json({ message: error.message });
-        }
+            if (error) {
+                return res.status(500).json({ message: error.message });
+            }
 
-        for (const paper of papers) {
-            const text = `
+            for (const paper of papers) {
+                const text = `
             Title: ${paper.title}
 
             Abstract: ${paper.abstract || ""}
         `
-            console.log(
-                `Generating embedding for: ${paper.title}`
-            );
-            const embedding = await generateEmbedding(text);
+                console.log(
+                    `Generating embedding for: ${paper.title}`
+                );
+                const embedding = await generateEmbedding(text);
 
-            const { error: updateError } = await supabase.from("papers")
-                .update({ embedding: embedding })
-                .eq("id", paper.id);
+                const { error: updateError } = await supabase.from("papers")
+                    .update({ embedding: embedding })
+                    .eq("id", paper.id);
 
-            if (updateError) {
-                console.error("Failed to save embedding:", updateError);
+                if (updateError) {
+                    console.error("Failed to save embedding:", updateError);
+                }
             }
-        }
         })
 
     } catch (error) {
@@ -255,9 +255,44 @@ const savePaperEmbedding = async (req, res) => {
     }
 }
 
+const semanticSearch = async (req, res) => {
+    try {
+
+        const {q} = req.query;
+
+        if( !q || !q.trim()){
+            return res.status(400).json({message: "Search query is required"});
+        }
+
+        console.log("Search query is :",q)
+
+        //  convert the user query into embedding
+        const queryEmbedding = await generateEmbedding(q);
+
+        console.log("Query embedding dimensions :", queryEmbedding.length);
+
+        // NOTE: search Superbase using vector similarity
+        const { data , error } = await supabase.rpc(
+            "match_papers",
+            {
+                query_embedding: queryEmbedding,
+                match_count: 100
+            }
+        );
+        return res.status(200).json(data);
+
+    } catch (error) {
+
+        console.error("Semantic search error:",error);
+
+        return res.status(500).json({message: error.message});
+    }
+}
+
 
 module.exports = {
     getAllPapers,
     searchPapers,
-    savePaperEmbedding
+    savePaperEmbedding,
+    semanticSearch
 };
