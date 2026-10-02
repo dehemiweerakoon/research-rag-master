@@ -14,7 +14,7 @@ const getAllPapers = async (req, res) => {
         }
         console.log("Searching for papers with query:", query);
 
-        const MAX_PAPERS = 1000;
+        const MAX_PAPERS = 200;
         const apiKeyParam = process.env.OPENALEX_API_KEY ? `&api_key=${process.env.OPENALEX_API_KEY}` : "";
 
         while (totalPapers < MAX_PAPERS) {
@@ -136,7 +136,8 @@ const savePapers = async (data) => {
         doi: paper.doi,
         topics: paper.topics,
         keywords: paper.keywords,
-        citation_count: paper.cited_by_count
+        citation_count: paper.cited_by_count,
+        open_access: paper.open_access
     }));
 
     const { error } = await supabase
@@ -289,6 +290,39 @@ const semanticSearch = async (req, res) => {
     }
 }
 
+const basicRagQuestions = async(req, res) =>{
+        try {
+
+        const {q} = req.query;
+
+        if( !q || !q.trim()){
+            return res.status(400).json({message: "Search query is required"});
+        }
+
+        console.log("Search query is :",q)
+
+        //  convert the user query into embedding
+        const queryEmbedding = await generateEmbedding(q);
+
+        console.log("Query embedding dimensions :", queryEmbedding.length);
+
+        // NOTE: search Superbase using vector similarity
+        const { data , error } = await supabase.rpc(
+            "match_papers",
+            {
+                query_embedding: queryEmbedding,
+                match_count: 100
+            }
+        );
+        return res.status(200).json(data);
+
+    } catch (error) {
+
+        console.error("Semantic search error:",error);
+
+        return res.status(500).json({message: error.message});
+    }
+}
 
 module.exports = {
     getAllPapers,
