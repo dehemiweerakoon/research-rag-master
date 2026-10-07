@@ -10,7 +10,7 @@ ENV PORT=5000
 
 # Install dependencies first (leverages Docker layer cache)
 COPY package*.json ./
-RUN npm ci --omit=dev && npm cache clean --force
+RUN npm install --omit=dev --legacy-peer-deps && npm cache clean --force
 
 # Copy application source code
 COPY . .
