@@ -4,7 +4,7 @@ const RecursiveCharacterTextSplitter = require('@langchain/textsplitters')
 
 const saveFullPaper = async (req, res) => {
     const { data: papers, error } = await supabase
-        .from("papers")
+        .from("papers_duplicate")
         .select("id, title, abstract, open_access")
         .is("full_embedding", null)
         .limit(10);
