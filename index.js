@@ -4,6 +4,7 @@ const connectDB = require("./config/db");
 const authRoutes = require("./routes/authRoutes");
 const userRoutes = require("./routes/userRoutes");
 const paperRoutes = require('./routes/paperRoutes');
+const paperSuggestRoutes = require('./routes/paperSuggestions');
 const morgan = require("morgan");
 const cors = require("cors");
 
@@ -18,6 +19,7 @@ app.use(express.json());
 app.use("/api/auth", authRoutes);
 app.use("/api/users", userRoutes);
 app.use("/api/",paperRoutes);
+app.use('/api/',paperSuggestRoutes);
 
 // Health check
 app.get("/", (req, res) => {

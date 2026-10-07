@@ -1,54 +1,88 @@
-const supabase = require("../config/postgres");
-const { PDFParse } = require("pdf-parse");
-const RecursiveCharacterTextSplitter = require('@langchain/textsplitters')
+const superbase = require('../config/postgres');
+const pdfParse = require("pdf-parse");
+const { generateEmbedding } = require("../services/embeddingService");
+const { RecursiveCharacterTextSplitter } = require("@langchain/textsplitters");
 
-const saveFullPaper = async (req, res) => {
-    const { data: papers, error } = await supabase
-        .from("papers_duplicate")
-        .select("id, title, abstract, open_access")
-        .is("full_embedding", null)
-        .limit(10);
-    if (error) {
-        return res.status(500).json({ message: error.message });
-    }
-    console.log(papers[0])
+const saveResearchPapers = async (req, res) => {
 
-    for (const paper of papers) {
-        const url = paper.open_access?.oa_url;
-        console.log(paper)
-        if (url) {
-            try {
-                const pdfResponse = await fetch(url, {
-                    redirect: "follow"
-                });
-
-                const pdfBuffer = await pdfResponse.arrayBuffer();
-
-                const firstBytes = Buffer.from(pdfBuffer).subarray(0, 20).toString('utf8');
-
-                if (!firstBytes.startsWith("%PDF")) {
-                    console.log("❌ This is NOT a PDF");
-                    continue;
-                }
-
-                const parser = new PDFParse(
-                    { data: Buffer.from(pdfBuffer) }
-                );
-                const pdfData = await parser.getText();
-
-                const fullText = pdfData.text;
-
-                console.log(fullText);
-                await parser.destroy();
-            } catch (error) {
-                console.error("PDF processing error:", error);
-            }
+    try {
+        const file = req.file;
+        if (!file) {
+            return res.status(400).json({
+                message: "PDF file is required"
+            });
         }
+
+        const fileName = `${Date.now()}-${file.originalname}`;
+
+        // upload pdf to superbase storage
+        const { data: storageData, error: storageError } = await superbase.
+            storage.from('research-papers')
+            .upload(fileName, file.buffer, {
+                contentType: "application/pdf",
+                upsert: false
+            })
+
+        if (storageError) {
+            console.error("SUPABASE STORAGE ERROR:", storageError);
+
+            return res.status(500).json({
+                message: "Storage error occurred",
+                error: storageError.message,
+                details: storageError
+            });
+        }
+        // save info in the database
+        const { data: paper, error: databaseError } = await superbase.from('research_papers')
+            .insert({
+                file_name: file.originalname,
+                file_path: storageData.path,
+            }).select().single();
+
+        if (databaseError) {
+            console.log(databaseError)
+            return res.status(500).json({
+                message: "Storage error occurred",
+                error: databaseError,
+                details: databaseError
+            });
+        }
+        res.status(201).json({ message: "data uploaded successfully" });
+
+        const fullText = await extractPdfText(file.buffer);
+
+        if (!fullText.trim()) {
+            return res.status(400).json({ message: "could not extract text from PDF" });
+        }
+
+        const splitter = new RecursiveCharacterTextSplitter({
+            chunkSize: 1000,
+            chunkOverlap: 200
+        })
+
+        const documents = await splitter.createDocuments([
+            fullText
+        ])
+        console.log(
+            "Number of chunks:",
+            documents.length
+        );
+        for (let i =0 ;i< documents.length; i++){
+            
+        }
+
+    } catch (error) {
+        console.log(error)
+        return res.status(500).json("storage error occurred");
     }
-    return res.status(200).json({ "hi": "hg" })
 }
 
+const extractPdfText = async (buffer) => {
+    const data = await pdfParse(buffer);
+
+    return data.text;
+};
 
 module.exports = {
-    saveFullPaper
+    saveResearchPapers
 }
