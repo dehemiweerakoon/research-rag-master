@@ -4,6 +4,7 @@ const { generateEmbedding } = require("../services/embeddingService");
 const { RecursiveCharacterTextSplitter } = require("@langchain/textsplitters");
 const { GoogleGenAI } = require("@google/genai");
 const { extractSections, identifyHeading } = require("../services/sectionService");
+const {extractPaperTitle} = require("../services/getTitleService");
 
 const saveResearchPapers = async (req, res) => {
 
@@ -34,11 +35,16 @@ const saveResearchPapers = async (req, res) => {
                 details: storageError
             });
         }
+        const fullText = await extractPdfText(file.buffer);
+
+        const title = await extractPaperTitle(fullText);
+
         // save info in the database
         const { data: paper, error: databaseError } = await superbase.from('research_papers')
             .insert({
                 file_name: file.originalname,
                 file_path: storageData.path,
+                title:title
             }).select().single();
 
         if (databaseError) {
@@ -49,8 +55,6 @@ const saveResearchPapers = async (req, res) => {
                 details: databaseError
             });
         }
-
-        const fullText = await extractPdfText(file.buffer);
 
         const sections = extractSections(fullText);
 
@@ -158,11 +162,14 @@ const QueryResearch = async (req, res) => {
         // generate embedding for the users question 
         const queryEmbedding = await generateEmbedding(question);
 
+        const paper  = await identifyPaper(question);
+
         const { data: chunks, error } = await superbase.rpc(
             "match_research_paper_chunks",
             {
                 query_embedding: queryEmbedding,
-                match_count: 5
+                match_count: 15,
+                filter_paper_ids: paper
             }
         );
 
@@ -175,25 +182,30 @@ const QueryResearch = async (req, res) => {
 
         const context = chunks.map((chunk, index) =>
             `[Source ${index + 1}]
-            Paper ID: ${chunk.research_paper_id}
+            Paper ID: ${chunk.title}
             Chunk ID: ${chunk.id}
             Content: ${chunk.content}
             `).join("\n\n");
 
         // ask gemini 
         const response = await genAI.models.generateContent({
-            model: "gemini-3.5-flash-lite",
+            model: "gemini-2.5-flash",
             contents: `You are a research assistant. Answer the users's questions using the research context provided below
             
             Rules:
-            Identify the research approaches, methods, research designs, datasets, and evaluation techniques explicitly described in the excerpts.
-            Distinguish between quantitative, qualitative, mixed-methods, experimental, survey-based, case-study, and computational approaches only when supported by the evidence.
-            For each identified approach, explain which research paper used it and how it was applied.
-            Cite supporting evidence using [Source 1], [Source 2], etc.
-            Do not infer a methodology from a paper's title or reference list alone.
-            If the retrieved excerpts contain only references, funding statements, acknowledgements, or data availability statements, explicitly state that the methodology cannot be established from the retrieved evidence.
-            Do not invent details or citations.
-            
+                -Analyze the retrieved research papers deeply, using logical reasoning to connect concepts, methods, findings, and research objectives.
+                -Go beyond summarizing excerpts by developing evidence-based inferences, identifying patterns, comparing approaches, and explaining their implications.
+                -Explain research concepts, methodologies, algorithms, datasets, and evaluation metrics in simple, clear language, including how they work, why they are used, and when relevant, their advantages and limitations.
+                -Distinguish explicitly reported facts from logical inferences, interpretations, and hypothetical examples.
+                -Use evidence from multiple relevant papers to build coherent discussions, identify similarities and differences, and derive potential research gaps where justified.
+                -Explain the reasoning behind conclusions step by step, ensuring that each inference follows logically from the available evidence.
+                -Critically examine the relationship between research objectives, methodologies, datasets, evaluation techniques, and findings.
+                -Use practical examples and analogies to clarify complex ideas, but never present hypothetical examples as methods or results reported by the authors.
+                -Do not include source citations, reference lists, URLs, or source labels in the final answer. Present the discussion naturally, focusing on explanations, reasoning, and insights rather than identifying where each statement originated.
+                -Never invent facts, findings, citations, datasets, or experimental procedures. When evidence is incomplete, clearly state what is known, what can reasonably be inferred, and what remains uncertain.
+                -Write detailed, meaningful discussions in accessible language, prioritizing understanding, critical analysis, and logical connections over simple summaries.
+
+
             Research context:
             ${context}
 
@@ -229,6 +241,38 @@ const QueryResearch = async (req, res) => {
 const genAI = new GoogleGenAI({
     apiKey: process.env.GEMINI_API_KEY
 });
+
+const identifyPaper = async (userQuery) => {
+    const { data: papers, error } = await superbase
+        .from("research_papers")
+        .select("id, title,file_name");
+
+    if (error) throw error;
+
+    const normalize = (text) =>
+        text.toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
+
+    const queryWords = new Set(normalize(userQuery).split(" "));
+
+    const matches = (papers || [])
+        .filter(paper => paper.title)
+        .map(paper => {
+            const words = normalize(paper.title).split(" ");
+            const matchedWords = words.filter(word => queryWords.has(word));
+            const words2 = normalize(paper.file_name);
+            const matchedWords2 = [...queryWords].some(q => words2.includes(q));
+
+            return {
+                id: paper.id,
+                score: matchedWords.length / words.length,
+                isIn: matchedWords2
+            };
+        })
+        .filter(paper => paper.score >= 0.5 || paper.isIn ===true)
+        .sort((a, b) => b.score - a.score);
+
+    return matches.length > 0 ? matches.map((match)=> match.id) : null;
+};
 
 module.exports = {
     saveResearchPapers,
