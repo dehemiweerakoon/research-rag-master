@@ -1,7 +1,7 @@
 const express = require("express");
 const router = express.Router();
 const { protect, authorize } = require("../middleware/auth");
-const {saveResearchPapers} = require('../controllers/paperSuggestions');
+const {saveResearchPapers, QueryResearch} = require('../controllers/paperSuggestions');
 const multer = require('multer');
 
 const upload = multer({
@@ -10,5 +10,6 @@ const upload = multer({
 
 router.use(protect);
 router.post('/suggestions/upload',upload.single('file'),saveResearchPapers);
+router.post('/suggestions/query', QueryResearch);
 
 module.exports = router;

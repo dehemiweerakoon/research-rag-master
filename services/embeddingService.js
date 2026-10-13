@@ -1,8 +1,8 @@
-const { HfInference } = require("@huggingface/inference");
+const { pipeline } = require("@huggingface/transformers");
 
-const hf = new HfInference(process.env.HF_TOKEN);
+const MODEL = "Xenova/bge-base-en-v1.5";
 
-const MODEL = "BAAI/bge-base-en-v1.5";
+let extractor = null;
 
 async function generateEmbedding(text) {
 
@@ -10,12 +10,24 @@ async function generateEmbedding(text) {
         throw new Error("Text is required for embedding");
     }
 
-    const result = await hf.featureExtraction({
-        model: MODEL,
-        inputs: text
+    if (!extractor) {
+
+        console.log("Loading embedding model...");
+
+        extractor = await pipeline(
+            "feature-extraction",
+            MODEL
+        );
+
+        console.log("Embedding model loaded");
+    }
+
+    const output = await extractor(text, {
+        pooling: "mean",
+        normalize: true
     });
 
-    return result;
+    return Array.from(output.data);
 }
 
 module.exports = {
